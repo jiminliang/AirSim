@@ -6,7 +6,57 @@
     pip install msgpack-rpc-python
     pip install airsim
 
+Edit c:/users/ljm/Documents/AirSim/setting.json
 
+```
+{
+  "SeeDocsAt": "https://github.com/Microsoft/AirSim/blob/main/docs/settings.md",
+  "SettingsVersion": 1.2,
+  "CameraDefaults": {
+      "CaptureSettings": [
+        {
+          "ImageType": 0,
+          "Width": 640,
+          "Height": 480,
+          "FOV_Degrees": 90,
+          "AutoExposureSpeed": 100,
+          "MotionBlurAmount": 0
+        },
+        {
+          "ImageType": 5,
+          "Width": 640,
+          "Height": 480,
+          "FOV_Degrees": 90,
+          "AutoExposureSpeed": 100,
+          "MotionBlurAmount": 0
+		},
+        {
+          "ImageType": 7,
+          "Width": 640,
+          "Height": 480,
+          "FOV_Degrees": 90,
+          "AutoExposureSpeed": 100,
+          "MotionBlurAmount": 0
+        }		
+    ]
+  },  
+  "SimMode": "ComputerVision"
+}
+```
+
+```
+class ImageType(metaclass=_ImageType):
+    Scene = 0
+    DepthPlanar = 1
+    DepthPerspective = 2
+    DepthVis = 3
+    DisparityNormalized = 4
+    Segmentation = 5
+    SurfaceNormals = 6
+    Infrared = 7
+    OpticalFlow = 8
+    OpticalFlowVis = 9
+```
 
 ## AirSim announcement: This repository will be archived in the coming year 
 
