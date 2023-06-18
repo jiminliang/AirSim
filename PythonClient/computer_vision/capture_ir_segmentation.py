@@ -6,6 +6,7 @@ import os
 import random
 import glob
 from airsim import *
+from create_ir_segmentation_map import get_new_temp_emiss_from_radiance, set_segmentation_ids
 
 def rotation_matrix_from_angles(pry):
     pitch = pry[0]
@@ -127,13 +128,15 @@ def get_image(x, y, z, pitch, roll, yaw, client):
 
     #Change images into numpy arrays.
     img1d = numpy.fromstring(responses[0].image_data_uint8, dtype=numpy.uint8)
-    im = img1d.reshape(responses[0].height, responses[0].width, 4) 
+    im = img1d.reshape(responses[0].height, responses[0].width, 3) 
 
     img1dscene = numpy.fromstring(responses[1].image_data_uint8, dtype=numpy.uint8)
-    imScene = img1dscene.reshape(responses[1].height, responses[1].width, 4)
+    imScene = img1dscene.reshape(responses[1].height, responses[1].width, 3)
 
-    return Vector3r(x, y, z), to_quaternion(pitch, roll, yaw),\
-           im[:,:,:3], imScene[:,:,:3] #get rid of alpha channel
+    img1dseg = numpy.fromstring(responses[2].image_data_uint8, dtype=numpy.uint8)
+    imSeg = img1dseg.reshape(responses[2].height, responses[2].width, 3)
+
+    return Vector3r(x, y, z), to_quaternion(pitch, roll, yaw), im, imScene, imSeg
 
 def main(client,
          objectList,
@@ -142,9 +145,11 @@ def main(client,
          yaw=0,
          z=-122,
          writeIR=True,
-         writeScene=False,
+         writeScene=True,
+         writeSeg=True,
          irFolder='',
-         sceneFolder=''):
+         sceneFolder='',
+         segFolder=''):
     """
     title::
         main
@@ -181,33 +186,35 @@ def main(client,
     for o in objectList:
         startTime = time.time()
         elapsedTime = 0
-        pose = client.simGetObjectPose(o);
+        pose = client.simGetObjectPose(o)
 
         #Capture images for a certain amount of time in seconds (half hour now)
-        while elapsedTime < 1800:
+        # while elapsedTime < 5:
+        for i in range(1):    # capture fixed number of images, by Jimin
             #Capture image - pose.position x_val access may change w/ AirSim
             #version (pose.position.x_val new, pose.position[b'x_val'] old)
-            vector, angle, ir, scene = get_image(pose.position.x_val, 
-                                                 pose.position.y_val, 
-                                                 z, 
-                                                 pitch, 
-                                                 roll, 
-                                                 yaw, 
-                                                 client)
+            vector, angle, ir, scene, seg = get_image(pose.position.x_val, 
+                                                    pose.position.y_val, 
+                                                    z, 
+                                                    pitch, 
+                                                    roll, 
+                                                    yaw, 
+                                                    client)
 
             #Convert color scene image to BGR for write out with cv2.
-            r,g,b = cv2.split(scene)
-            scene = cv2.merge((b,g,r))
+            # r,g,b = cv2.split(scene)
+            # scene = cv2.merge((b,g,r))
 
             if writeIR:
-                cv2.imwrite(irFolder+'ir_'+str(i).zfill(5)+'.png', ir)
+                cv2.imwrite(os.path.join(irFolder,    o+'_'+str(i).zfill(5)+'_ir'+'.png'), ir)
             if writeScene:
-                cv2.imwrite(sceneFolder+'scene_'+str(i).zfill(5)+'.png', 
-                            scene)
+                cv2.imwrite(os.path.join(sceneFolder, o+'_'+str(i).zfill(5)+'_rgb'+'.png'), scene)
+            if writeSeg:
+                cv2.imwrite(os.path.join(sceneFolder, o+'_'+str(i).zfill(5)+'_seg'+'.png'), seg)
 
             i += 1
             elapsedTime = time.time() - startTime
-            pose = client.simGetObjectPose(o);
+            pose = client.simGetObjectPose(o)
             camInfo = client.simGetCameraInfo("0")
             object_xy_in_pic = project_3d_point_to_screen(
                 [pose.position.x_val, pose.position.y_val, pose.position.z_val],
@@ -218,11 +225,74 @@ def main(client,
             )
             print("Object projected to pixel\n{!s}.".format(object_xy_in_pic))
 
+def set_IR_parameters(client, season='winter'):
+    segIdDict = {'Base_Terrain':'soil',
+                 'elephant':'elephant',
+                 'zebra':'zebra',
+                 'Crocodile':'crocodile',
+                 'Rhinoceros':'rhinoceros',
+                 'Hippo':'hippopotamus',
+                 'Poacher':'human',
+                 'InstancedFoliageActor':'tree',
+                 'Water_Plane':'water',
+                 'truck':'truck'}
+    
+    #Choose temperature values for winter or summer.
+    #"""
+    #winter
+    if season == 'winter':
+        tempEmissivity = numpy.array([['elephant',290,0.96], 
+                                  ['zebra',298,0.98],
+                                  ['rhinoceros',291,0.96],
+                                  ['hippopotamus',290,0.96],
+                                  ['crocodile',295,0.96],
+                                  ['human',292,0.985], 
+                                  ['tree',273,0.952], 
+                                  ['grass',273,0.958], 
+                                  ['soil',278,0.914], 
+                                  ['shrub',273,0.986],
+                                  ['truck',273,0.8],
+                                  ['water',273,0.96]])
+
+    #summer
+    if season == 'summer':
+        tempEmissivity = numpy.array([['elephant',298,0.96], 
+                                  ['zebra',307,0.98],
+                                  ['rhinoceros',299,0.96],
+                                  ['hippopotamus',298,0.96],
+                                  ['crocodile',303,0.96],
+                                  ['human',301,0.985], 
+                                  ['tree',293,0.952], 
+                                  ['grass',293,0.958], 
+                                  ['soil',288,0.914], 
+                                  ['shrub',293,0.986],
+                                  ['truck',293,0.8],
+                                  ['water',293,0.96]])
+
+    #Read camera response.
+    response = None
+    camResponseFile = 'camera_response.npy'
+    try:
+      numpy.load(camResponseFile)
+    except:
+      print("{} not found. Using default response.".format(camResponseFile))
+
+    #Calculate radiance.
+    tempEmissivityNew = get_new_temp_emiss_from_radiance(tempEmissivity, 
+                                                         response)
+
+    #Set IDs in AirSim environment.
+    set_segmentation_ids(segIdDict, tempEmissivityNew, client)
+
 if __name__ == '__main__':
     
     #Connect to AirSim, UAV mode.
     client = MultirotorClient()
     client.confirmConnection()
+
+    set_IR_parameters(client=client, season='winter')
+
+    allObjects = client.simListSceneObjects('.*')
 
     #Look for objects with names that match a regular expression.
     poacherList = client.simListSceneObjects('.*?Poacher.*?')
@@ -230,28 +300,51 @@ if __name__ == '__main__':
     crocList = client.simListSceneObjects('.*?Croc.*?')
     hippoList = client.simListSceneObjects('.*?Hippo.*?')
     
-    objectList = elephantList
+    objectList = poacherList + elephantList + crocList + hippoList
     
     #Sample calls to main, varying camera angle and altitude.
     #straight down, 400ft
+    dataFolder=r'..\Sim_data\winter\400ft\down'
+    if not os.path.exists(dataFolder):
+        os.makedirs(dataFolder)
     main(client, 
          objectList, 
-         irFolder=r'auto\winter\400ft\down') 
-    #straight down, 200ft
-    main(client, 
-         objectList, 
-         z=-61, 
-         irFolder=r'auto\winter\200ft\down') 
-    #45 degrees, 200ft -- note that often object won't be scene since position
-    #is set exactly to object's
-    main(client, 
-         objectList, 
-         z=-61, 
-         pitch=numpy.radians(315), 
-         irFolder=r'auto\winter\200ft\45') 
+         irFolder=dataFolder,
+         sceneFolder=dataFolder,
+         segFolder=dataFolder) 
+    
     #45 degrees, 400ft -- note that often object won't be scene since position
     #is set exactly to object's
+    dataFolder=r'..\Sim_data\winter\400ft\45'
+    if not os.path.exists(dataFolder):
+        os.makedirs(dataFolder)
     main(client, 
          objectList, 
          pitch=numpy.radians(315), 
-         irFolder=r'auto\winter\400ft\45') 
+         irFolder=dataFolder,
+         sceneFolder=dataFolder,
+         segFolder=dataFolder)  
+
+    #straight down, 200ft
+    dataFolder=r'..\Sim_data\winter\200ft\down'
+    if not os.path.exists(dataFolder):
+        os.makedirs(dataFolder)
+    main(client, 
+         objectList, 
+         z=-61, 
+         irFolder=dataFolder,
+         sceneFolder=dataFolder,
+         segFolder=dataFolder)
+    
+    #45 degrees, 200ft -- note that often object won't be scene since position
+    #is set exactly to object's
+    dataFolder=r'..\Sim_data\winter\200ft\45'
+    if not os.path.exists(dataFolder):
+        os.makedirs(dataFolder)
+    main(client, 
+         objectList, 
+         z=-61, 
+         pitch=numpy.radians(315), 
+         irFolder=dataFolder,
+         sceneFolder=dataFolder,
+         segFolder=dataFolder)
