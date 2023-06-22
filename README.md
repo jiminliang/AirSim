@@ -44,6 +44,9 @@ Edit c:/users/ljm/Documents/AirSim/setting.json
 }
 ```
 
+Other SimMode: Multirotor, Car ?
+
+
 ```
 class ImageType(metaclass=_ImageType):
     Scene = 0
